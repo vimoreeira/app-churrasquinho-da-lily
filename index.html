@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Churrasquinho da Lily - Gestão</title>
+    <style>
+        :root {
+            --primary: #e65100;
+            --accent: #ff9800;
+            --bg: #ffccbc;
+            --success: #2e7d32;
+            --danger: #c62828;
+        }
+        body { font-family: 'Segoe UI', sans-serif; background: var(--bg); margin: 0; padding: 15px; }
+        .container { max-width: 950px; margin: auto; background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.2); }
+        h1, h2 { color: var(--primary); text-align: center; margin-top: 0; }
+        
+        .filter-section { background: #fff3e0; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 1px solid var(--accent); }
+        .filter-controls { display: flex; justify-content: space-around; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 15px; }
+        .search-box { width: 100%; max-width: 400px; margin: 10px auto; display: block; padding: 10px; border-radius: 5px; border: 1px solid var(--accent); }
+        
+        .card { border: 1px solid #ddd; padding: 15px; border-radius: 8px; margin-bottom: 20px; background: #fff; }
+        input, select { padding: 10px; border-radius: 5px; border: 1px solid #ccc; font-size: 16px; }
+        
+        /* Estilo das Categorias */
+        .category-title { background: var(--accent); color: white; padding: 8px; border-radius: 5px; margin-top: 20px; font-weight: bold; text-transform: uppercase; font-size: 0.9em; }
+        .menu-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 10px; margin: 10px 0; }
+        .menu-item { display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid #eee; background: #fafafa; border-radius: 5px; }
+        
+        .qty-controls { display: flex; align-items: center; gap: 12px; }
+        button { cursor: pointer; border: none; border-radius: 5px; transition: 0.2s; font-weight: bold; padding: 8px 15px; }
+        
+        .btn-plus { background: var(--success); color: white; }
+        .btn-minus { background: var(--danger); color: white; }
+        .btn-save { background: var(--primary); color: white; width: 100%; padding: 15px; font-size: 18px; margin-top: 10px; }
+        .btn-edit { background: #0277bd; color: white; font-size: 12px; }
+        .btn-delete { background: var(--danger); color: white; font-size: 12px; }
+        
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { border: 1px solid #ddd; padding: 10px; text-align: left; font-size: 14px; }
+        th { background-color: var(--primary); color: white; }
+        
+        .status-pago { color: var(--success); font-weight: bold; }
+        .status-pendente { color: var(--danger); font-weight: bold; text-decoration: underline; }
+        .total-box { font-size: 1.4em; font-weight: bold; color: var(--success); text-align: center; margin: 15px 0; background: #e8f5e9; padding: 10px; border-radius: 8px; border: 1px solid var(--success); }
+
+        @media print {
+            .filter-section, .card, .btn-edit, .btn-delete, h2, .no-print, .search-box { display: none; }
+            body { background: white; }
+            .container { box-shadow: none; border: none; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>🍢 Churrasquinho da Lily</h1>
+
+    <div class="filter-section">
+        <div class="filter-controls">
+            <div><label>De: </label><input type="date" id="dateStart"></div>
+            <div><label>Até: </label><input type="date" id="dateEnd"></div>
+            <button onclick="renderOrders()" style="background: var(--primary); color: white;">Filtrar</button>
+        </div>
+        <input type="text" id="searchClient" class="search-box" placeholder="🔍 Pesquisar por nome do cliente..." onkeyup="renderOrders()">
+        <div style="text-align:center; gap:10px; display:flex; justify-content:center;">
+            <button onclick="exportToExcel()" style="background: #1b5e20; color:white;">📊 Excel</button>
+            <button onclick="window.print()" style="background: #455a64; color:white;">🖨️ Imprimir</button>
+        </div>
+    </div>
+
+    <div class="total-box" id="revenueDisplay">Faturamento: R$ 0,00</div>
+
+    <div class="card">
+        <h3 id="formTitle">Novo Pedido</h3>
+        <input type="hidden" id="editIndex" value="-1">
+        
+        <input type="text" id="clientName" placeholder="Nome do Cliente" style="width: 95%; margin-bottom: 10px;">
+        
+        <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+            <select id="paymentMethod" style="flex: 1;">
+                <option value="Pix">Pix</option>
+                <option value="Dinheiro">Dinheiro</option>
+                <option value="Cartão">Cartão</option>
+            </select>
+            <select id="orderStatus" style="flex: 1;">
+                <option value="Pagamento pendente" selected>Pagamento pendente</option>
+                <option value="Pago">Pago</option>
+            </select>
+        </div>
+        
+        <div id="menuContent">
+            </div>
+
+        <button class="btn-save" onclick="saveOrder()">Salvar Venda</button>
+        <button id="btnCancel" onclick="resetForm()" style="display:none; width:100%; margin-top:5px; background:#999; color:white;">Cancelar Edição</button>
+    </div>
+
+    <div style="overflow-x:auto;">
+        <table>
+            <thead>
+                <tr>
+                    <th>Data</th>
+                    <th>Cliente</th>
+                    <th>Itens</th>
+                    <th>Pagamento</th>
+                    <th>Status</th>
+                    <th>Total</th>
+                    <th class="no-print">Ações</th>
+                </tr>
+            </thead>
+            <tbody id="ordersTable"></tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+    const categories = {
+        "Churrascos": [
+            { name: "Picanha", price: 30.00 },
+            { name: "Carne", price: 22.00 },
+            { name: "Toscana", price: 20.00 },
+            { name: "Frango", price: 20.00 },
+            { name: "Porco", price: 20.00 },
+            { name: "Carne + Toscana", price: 20.00 },
+            { name: "Carne + Porco", price: 20.00 },
+            { name: "Carne + Frango", price: 20.00 },
+            { name: "Misto", price: 20.00 }
+        ],
+        "Adicionais": [
+            { name: "Toscana (Adic.)", price: 6.00 },
+            { name: "Queijo Coalho", price: 6.00 }
+        ],
+        "Bebidas": [
+            { name: "Refrigerante Lata", price: 6.00 },
+            { name: "Refrigerante 1L", price: 10.00 },
+            { name: "Cerveja Long", price: 9.00 }
+        ]
+    };
+
+    // Achatar o menu para facilitar buscas
+    const flatMenu = [];
+    Object.values(categories).forEach(cat => flatMenu.push(...cat));
+
+    let orders = JSON.parse(localStorage.getItem('lily_orders_v6')) || [];
+    let currentQuantities = {};
+
+    function initMenu() {
+        const container = document.getElementById('menuContent');
+        container.innerHTML = '';
+        
+        let globalIdx = 0;
+        for (const [catName, items] of Object.entries(categories)) {
+            container.innerHTML += `<div class="category-title">${catName}</div>`;
+            let grid = `<div class="menu-grid">`;
+            
+            items.forEach((item) => {
+                currentQuantities[globalIdx] = 0;
+                grid += `
+                    <div class="menu-item">
+                        <span>${item.name} <br><small>R$ ${item.price.toFixed(2)}</small></span>
+                        <div class="qty-controls">
+                            <button class="btn-minus" onclick="updateQty(${globalIdx}, -1)">-</button>
+                            <span id="qty-${globalIdx}">0</span>
+                            <button class="btn-plus" onclick="updateQty(${globalIdx}, 1)">+</button>
+                        </div>
+                    </div>`;
+                globalIdx++;
+            });
+            grid += `</div>`;
+            container.innerHTML += grid;
+        }
+    }
+
+    function updateQty(index, change) {
+        currentQuantities[index] = Math.max(0, currentQuantities[index] + change);
+        document.getElementById(`qty-${index}`).innerText = currentQuantities[index];
+    }
+
+    function saveOrder() {
+        const name = document.getElementById('clientName').value;
+        const method = document.getElementById('paymentMethod').value;
+        const status = document.getElementById('orderStatus').value;
+        const editIndex = parseInt(document.getElementById('editIndex').value);
+
+        if (!name) return alert("Digite o nome do cliente");
+        
+        const selectedItems = flatMenu.map((item, i) => ({
+            ...item, qty: currentQuantities[i]
+        })).filter(i => i.qty > 0);
+
+        if (selectedItems.length === 0) return alert("Adicione itens ao pedido");
+
+        const total = selectedItems.reduce((acc, curr) => acc + (curr.price * curr.qty), 0);
+        const orderData = {
+            client: name, items: selectedItems, payment: method,
+            status: status, total: total,
+            date: editIndex > -1 ? orders[editIndex].date : new Date().toISOString().split('T')[0]
+        };
+
+        if (editIndex > -1) orders[editIndex] = orderData;
+        else orders.push(orderData);
+
+        localStorage.setItem('lily_orders_v6', JSON.stringify(orders));
+        resetForm();
+        renderOrders();
+    }
+
+    function renderOrders() {
+        const table = document.getElementById('ordersTable');
+        const start = document.getElementById('dateStart').value;
+        const end = document.getElementById('dateEnd').value;
+        const searchTerm = document.getElementById('searchClient').value.toLowerCase();
+        table.innerHTML = '';
+        let revenue = 0;
+
+        orders.forEach((order, index) => {
+            if (start && order.date < start) return;
+            if (end && order.date > end) return;
+            if (searchTerm && !order.client.toLowerCase().includes(searchTerm)) return;
+
+            revenue += order.total;
+            const itemsText = order.items.map(i => `${i.qty}x ${i.name}`).join(', ');
+            
+            table.innerHTML += `
+                <tr>
+                    <td>${order.date.split('-').reverse().join('/')}</td>
+                    <td>${order.client}</td>
+                    <td><small>${itemsText}</small></td>
+                    <td>${order.payment}</td>
+                    <td class="${order.status === 'Pago' ? 'status-pago' : 'status-pendente'}">${order.status}</td>
+                    <td>R$ ${order.total.toFixed(2)}</td>
+                    <td class="no-print">
+                        <button class="btn-edit" onclick="editOrder(${index})">Editar</button>
+                        <button class="btn-delete" onclick="deleteOrder(${index})">X</button>
+                    </td>
+                </tr>`;
+        });
+        document.getElementById('revenueDisplay').innerText = `Faturamento: R$ ${revenue.toFixed(2)}`;
+    }
+
+    function editOrder(index) {
+        const order = orders[index];
+        document.getElementById('clientName').value = order.client;
+        document.getElementById('paymentMethod').value = order.payment;
+        document.getElementById('orderStatus').value = order.status;
+        document.getElementById('editIndex').value = index;
+        document.getElementById('btnCancel').style.display = 'block';
+        
+        flatMenu.forEach((item, fIdx) => {
+            const found = order.items.find(oi => oi.name === item.name);
+            currentQuantities[fIdx] = found ? found.qty : 0;
+            document.getElementById(`qty-${fIdx}`).innerText = currentQuantities[fIdx];
+        });
+        window.scrollTo(0,0);
+    }
+
+    function deleteOrder(index) {
+        if(confirm("Excluir este pedido?")) {
+            orders.splice(index, 1);
+            localStorage.setItem('lily_orders_v6', JSON.stringify(orders));
+            renderOrders();
+        }
+    }
+
+    function resetForm() {
+        document.getElementById('clientName').value = '';
+        document.getElementById('editIndex').value = "-1";
+        document.getElementById('orderStatus').value = "Pagamento pendente";
+        document.getElementById('btnCancel').style.display = 'none';
+        flatMenu.forEach((_, i) => {
+            currentQuantities[i] = 0;
+            document.getElementById(`qty-${i}`).innerText = 0;
+        });
+    }
+
+    function exportToExcel() {
+        let csv = "Data;Cliente;Itens;Pagamento;Status;Total\n";
+        orders.forEach(o => {
+            const items = o.items.map(i => `${i.qty} ${i.name}`).join(" | ");
+            csv += `${o.date};${o.client};${items};${o.payment};${o.status};${o.total.toFixed(2)}\n`;
+        });
+        const blob = new Blob(["\ufeff" + csv], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(blob);
+        link.download = "vendas_lily.csv";
+        link.click();
+    }
+
+    initMenu();
+    renderOrders();
+</script>
+</body>
+</html>
