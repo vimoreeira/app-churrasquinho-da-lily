@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Churrasquinho da Lily - Gestão</title>
+    <title>Churrasquinho da Lily - Gestão Cloud</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
         :root {
             --primary: #e65100;
@@ -23,7 +24,6 @@
         .card { border: 1px solid #ddd; padding: 15px; border-radius: 8px; margin-bottom: 20px; background: #fff; }
         input, select { padding: 10px; border-radius: 5px; border: 1px solid #ccc; font-size: 16px; }
         
-        /* Estilo das Categorias */
         .category-title { background: var(--accent); color: white; padding: 8px; border-radius: 5px; margin-top: 20px; font-weight: bold; text-transform: uppercase; font-size: 0.9em; }
         .menu-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 10px; margin: 10px 0; }
         .menu-item { display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid #eee; background: #fafafa; border-radius: 5px; }
@@ -74,7 +74,7 @@
 
     <div class="card">
         <h3 id="formTitle">Novo Pedido</h3>
-        <input type="hidden" id="editIndex" value="-1">
+        <input type="hidden" id="editOrderId" value="">
         
         <input type="text" id="clientName" placeholder="Nome do Cliente" style="width: 95%; margin-bottom: 10px;">
         
@@ -90,10 +90,9 @@
             </select>
         </div>
         
-        <div id="menuContent">
-            </div>
+        <div id="menuContent"></div>
 
-        <button class="btn-save" onclick="saveOrder()">Salvar Venda</button>
+        <button class="btn-save" id="btnSave" onclick="saveOrder()">Salvar Venda</button>
         <button id="btnCancel" onclick="resetForm()" style="display:none; width:100%; margin-top:5px; background:#999; color:white;">Cancelar Edição</button>
     </div>
 
@@ -116,6 +115,11 @@
 </div>
 
 <script>
+    // CONFIGURAÇÃO SUPABASE
+    const SUPABASE_URL = 'https://xdspbbbgmfnxggonklms.supabase.co';
+    const SUPABASE_KEY = 'sb_publishable_UwlmXN7Cl-Hb0TAgtjyCzA_33a2MqQi';
+    const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
     const categories = {
         "Churrascos": [
             { name: "Picanha", price: 30.00 },
@@ -139,22 +143,19 @@
         ]
     };
 
-    // Achatar o menu para facilitar buscas
     const flatMenu = [];
     Object.values(categories).forEach(cat => flatMenu.push(...cat));
 
-    let orders = JSON.parse(localStorage.getItem('lily_orders_v6')) || [];
+    let orders = [];
     let currentQuantities = {};
 
     function initMenu() {
         const container = document.getElementById('menuContent');
         container.innerHTML = '';
-        
         let globalIdx = 0;
         for (const [catName, items] of Object.entries(categories)) {
             container.innerHTML += `<div class="category-title">${catName}</div>`;
             let grid = `<div class="menu-grid">`;
-            
             items.forEach((item) => {
                 currentQuantities[globalIdx] = 0;
                 grid += `
@@ -178,11 +179,11 @@
         document.getElementById(`qty-${index}`).innerText = currentQuantities[index];
     }
 
-    function saveOrder() {
+    async function saveOrder() {
         const name = document.getElementById('clientName').value;
         const method = document.getElementById('paymentMethod').value;
         const status = document.getElementById('orderStatus').value;
-        const editIndex = parseInt(document.getElementById('editIndex').value);
+        const editId = document.getElementById('editOrderId').value;
 
         if (!name) return alert("Digite o nome do cliente");
         
@@ -193,18 +194,44 @@
         if (selectedItems.length === 0) return alert("Adicione itens ao pedido");
 
         const total = selectedItems.reduce((acc, curr) => acc + (curr.price * curr.qty), 0);
+        
         const orderData = {
-            client: name, items: selectedItems, payment: method,
-            status: status, total: total,
-            date: editIndex > -1 ? orders[editIndex].date : new Date().toISOString().split('T')[0]
+            client: name, 
+            items: selectedItems, 
+            payment: method,
+            status: status, 
+            total: total
         };
 
-        if (editIndex > -1) orders[editIndex] = orderData;
-        else orders.push(orderData);
+        document.getElementById('btnSave').innerText = "Salvando...";
 
-        localStorage.setItem('lily_orders_v6', JSON.stringify(orders));
+        if (editId) {
+            // Atualizar no Supabase
+            const { error } = await supabase.from('pedidos').update(orderData).eq('id', editId);
+            if (error) alert("Erro ao atualizar: " + error.message);
+        } else {
+            // Inserir novo no Supabase
+            const { error } = await supabase.from('pedidos').insert([orderData]);
+            if (error) alert("Erro ao salvar: " + error.message);
+        }
+
+        document.getElementById('btnSave').innerText = "Salvar Venda";
         resetForm();
-        renderOrders();
+        fetchOrders(); // Recarrega do banco
+    }
+
+    async function fetchOrders() {
+        const { data, error } = await supabase
+            .from('pedidos')
+            .select('*')
+            .order('date', { ascending: false });
+
+        if (error) {
+            console.error("Erro ao buscar dados:", error);
+        } else {
+            orders = data;
+            renderOrders();
+        }
     }
 
     function renderOrders() {
@@ -215,7 +242,7 @@
         table.innerHTML = '';
         let revenue = 0;
 
-        orders.forEach((order, index) => {
+        orders.forEach((order) => {
             if (start && order.date < start) return;
             if (end && order.date > end) return;
             if (searchTerm && !order.client.toLowerCase().includes(searchTerm)) return;
@@ -232,21 +259,24 @@
                     <td class="${order.status === 'Pago' ? 'status-pago' : 'status-pendente'}">${order.status}</td>
                     <td>R$ ${order.total.toFixed(2)}</td>
                     <td class="no-print">
-                        <button class="btn-edit" onclick="editOrder(${index})">Editar</button>
-                        <button class="btn-delete" onclick="deleteOrder(${index})">X</button>
+                        <button class="btn-edit" onclick="editOrder(${order.id})">Editar</button>
+                        <button class="btn-delete" onclick="deleteOrder(${order.id})">X</button>
                     </td>
                 </tr>`;
         });
         document.getElementById('revenueDisplay').innerText = `Faturamento: R$ ${revenue.toFixed(2)}`;
     }
 
-    function editOrder(index) {
-        const order = orders[index];
+    function editOrder(id) {
+        const order = orders.find(o => o.id === id);
+        if (!order) return;
+
         document.getElementById('clientName').value = order.client;
         document.getElementById('paymentMethod').value = order.payment;
         document.getElementById('orderStatus').value = order.status;
-        document.getElementById('editIndex').value = index;
+        document.getElementById('editOrderId').value = order.id;
         document.getElementById('btnCancel').style.display = 'block';
+        document.getElementById('formTitle').innerText = "Editando Pedido";
         
         flatMenu.forEach((item, fIdx) => {
             const found = order.items.find(oi => oi.name === item.name);
@@ -256,22 +286,24 @@
         window.scrollTo(0,0);
     }
 
-    function deleteOrder(index) {
-        if(confirm("Excluir este pedido?")) {
-            orders.splice(index, 1);
-            localStorage.setItem('lily_orders_v6', JSON.stringify(orders));
-            renderOrders();
+    async function deleteOrder(id) {
+        if(confirm("Excluir este pedido permanentemente do banco de dados?")) {
+            const { error } = await supabase.from('pedidos').delete().eq('id', id);
+            if (error) alert("Erro ao deletar: " + error.message);
+            else fetchOrders();
         }
     }
 
     function resetForm() {
         document.getElementById('clientName').value = '';
-        document.getElementById('editIndex').value = "-1";
+        document.getElementById('editOrderId').value = "";
         document.getElementById('orderStatus').value = "Pagamento pendente";
         document.getElementById('btnCancel').style.display = 'none';
+        document.getElementById('formTitle').innerText = "Novo Pedido";
         flatMenu.forEach((_, i) => {
             currentQuantities[i] = 0;
-            document.getElementById(`qty-${i}`).innerText = 0;
+            const el = document.getElementById(`qty-${i}`);
+            if(el) el.innerText = 0;
         });
     }
 
@@ -284,12 +316,13 @@
         const blob = new Blob(["\ufeff" + csv], { type: 'text/csv;charset=utf-8;' });
         const link = document.createElement("a");
         link.href = URL.createObjectURL(blob);
-        link.download = "vendas_lily.csv";
+        link.download = "vendas_lily_cloud.csv";
         link.click();
     }
 
+    // INICIALIZAÇÃO
     initMenu();
-    renderOrders();
+    fetchOrders();
 </script>
 </body>
 </html>
